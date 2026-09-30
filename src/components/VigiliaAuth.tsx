@@ -6,7 +6,7 @@ interface VigiliaAuthProps {
 }
 
 export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => {
-  const [view, setView] = useState<'BOOT' | 'SCANNER' | 'DASHBOARD'>('BOOT');
+  const [view, setView] = useState<'INTRO' | 'BOOT' | 'SCANNER' | 'DASHBOARD'>('INTRO');
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [user, setUser] = useState<{name: string, id: string, image: string | null} | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -14,6 +14,47 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
   const [tempImage, setTempImage] = useState<string | null>(null);
   const [logs, setLogs] = useState<{time: string, msg: string, isAlert: boolean}[]>([]);
   const [stats, setStats] = useState({ temp: "36.5", bpm: "72" });
+  
+  const introTexts = [
+      "VIGILIA: OBSERVACIÓN CIBERNÉTICA.",
+      "ESTE SISTEMA ANALIZARÁ TU PRESENCIA FÍSICA Y SONORA.",
+      "TRANSFORMARÁ TU BIOMETRÍA EN POESÍA GENERATIVA.",
+      "LA MEMORIA DIGITAL NO OLVIDA.",
+      "ESTÁS A PUNTO DE CEDER TU REFLEJO A LA MÁQUINA.",
+      "¿ACEPTAS SER OBSERVADO?"
+  ];
+  const [introStep, setIntroStep] = useState(0);
+  const [displayedText, setDisplayedText] = useState("");
+
+  useEffect(() => {
+      if (view === 'INTRO') {
+          if (introStep < introTexts.length) {
+              let currentText = introTexts[introStep];
+              let i = 0;
+              let accumulated = "";
+              setDisplayedText("");
+              
+              const typeInterval = setInterval(() => {
+                  if (i < currentText.length) {
+                      accumulated += currentText.charAt(i);
+                      setDisplayedText(accumulated);
+                      if (Math.random() > 0.6) playSound('click');
+                      i++;
+                  } else {
+                      clearInterval(typeInterval);
+                      const isLast = introStep === introTexts.length - 1;
+                      if (!isLast) {
+                          setTimeout(() => {
+                              setIntroStep((prev) => prev + 1);
+                          }, 2500);
+                      }
+                  }
+              }, 35);
+              
+              return () => clearInterval(typeInterval);
+          }
+      }
+  }, [view, introStep]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const hudCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -135,6 +176,8 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
           addLog("SENSOR ÓPTICO ACTIVADO");
       } catch (e) {
           addLog("ERROR CRÍTICO: CÁMARA NO DISPONIBLE", true);
+          addLog("HABILITANDO MODO SIMULADO", false);
+          setView('SCANNER'); // Permitir continuar sin cámara
       }
   };
 
@@ -143,7 +186,12 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
       playSound('click');
       const canvas = document.createElement('canvas');
       canvas.width = 100; canvas.height = 100;
-      canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0, 100, 100);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+          ctx.translate(100, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(videoRef.current, 0, 0, 100, 100);
+      }
       setTempImage(canvas.toDataURL());
       setShowNameModal(true);
       setTimeout(() => nameInputRef.current?.focus(), 100);
@@ -193,7 +241,7 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
   }, [view, videoStream, onAccessGranted, user]);
 
   return (
-    <div className="fixed inset-0 bg-[#020406] text-green-500 font-mono select-none overflow-hidden z-[9999]">
+    <div className="fixed inset-0 bg-[#020406] text-green-500 font-mono select-none overflow-hidden z-[9999] flex flex-col">
         <style>{`
             .glass-panel { background: rgba(8, 12, 10, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(34, 197, 94, 0.2); }
             .scan-line { position: absolute; width: 100%; height: 2px; background: #22c55e; box-shadow: 0 0 15px #22c55e; animation: scan 2s infinite ease-in-out; }
@@ -202,7 +250,7 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
         `}</style>
         <div className="crt absolute inset-0 pointer-events-none"></div>
 
-        <div className="h-12 glass-panel flex items-center justify-between px-4 border-b border-green-900 z-50 relative">
+        <div className="h-12 flex-shrink-0 glass-panel flex items-center justify-between px-4 border-b border-green-900 z-50 relative">
             <div className="flex items-center gap-4">
                 <span className="bg-green-900/40 px-2 py-0.5 text-[10px] border border-green-500/30">SESSION: 0x88F2</span>
                 <h1 className="font-black italic tracking-tighter text-white">VIGILIA<span className="text-green-600">EXP OS</span></h1>
@@ -213,97 +261,127 @@ export const VigiliaAuth: React.FC<VigiliaAuthProps> = ({ onAccessGranted }) => 
             </div>
         </div>
 
-        <div className="absolute inset-0 top-12 p-4 grid grid-cols-12 gap-4">
-            
-            <div className="col-span-3 glass-panel p-4 flex flex-col gap-4 hidden md:flex">
-                <div className="space-y-2">
-                    <h3 className="text-[10px] font-bold opacity-50 border-b border-green-800 pb-1">BIOMETRÍA</h3>
-                    <div className="flex justify-between text-xs"><span>TEMP</span><span className="text-white">{stats.temp}°C</span></div>
-                    <div className="flex justify-between text-xs"><span>PULSO</span><span className="text-white">{stats.bpm} BPM</span></div>
-                </div>
-                <div className="flex-1 bg-black/50 border border-green-900/30 relative">
-                    <canvas ref={voiceCanvasRef} width={200} height={100} className="w-full h-full opacity-70"></canvas>
-                    <span className="absolute top-1 left-1 text-[8px] opacity-50">VOICE_PRINT</span>
-                </div>
-                <div className="h-32 bg-black/80 border border-green-900/30 p-2 overflow-hidden font-mono text-[9px]">
-                    {logs.map((l, i) => (
-                        <div key={i} className={l.isAlert ? 'text-red-500' : 'text-green-400 opacity-80'}>
-                            <span className="opacity-40">[{l.time}]</span> {l.msg}
+        {view === 'INTRO' ? (
+            <div className="relative flex-1 flex flex-col items-center justify-center p-4 md:p-8 z-20 overflow-hidden">
+                <div className="max-w-4xl w-full flex flex-col items-center relative z-10">
+                    <div className="min-h-[120px] md:min-h-[150px] flex items-center justify-center w-full px-4">
+                        <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-green-400 tracking-[0.1em] md:tracking-[0.2em] leading-relaxed text-center uppercase drop-shadow-[0_0_15px_rgba(34,197,94,0.5)] break-words">
+                            {displayedText}
+                            <span className="animate-pulse text-white">_</span>
+                        </p>
+                    </div>
+                    
+                    {introStep === introTexts.length - 1 && displayedText.length === introTexts[introStep].length && (
+                        <div className="mt-16 flex justify-center animate-pulse">
+                            <button 
+                            onClick={() => { playSound('click'); setView('BOOT'); }} 
+                            className="px-12 py-5 bg-transparent hover:bg-green-500 hover:text-black border-2 border-green-500 transition-all font-black tracking-[0.4em] text-sm md:text-base shadow-[0_0_30px_rgba(34,197,94,0.3)]"
+                            >
+                                INICIAR PROTOCOLO
+                            </button>
                         </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className="col-span-12 md:col-span-6 relative flex flex-col items-center justify-center">
-                {view === 'BOOT' && (
-                     <div className="text-center z-20">
-                         <div className="w-20 h-20 border-t-4 border-green-500 rounded-full animate-spin mb-6 mx-auto shadow-[0_0_30px_rgba(34,197,94,0.4)]"></div>
-                         <h2 className="text-3xl font-black italic mb-2 tracking-widest text-white">SISTEMA <span className="text-green-500">SEGURO</span></h2>
-                         <p className="text-xs mb-8 text-green-700 tracking-[0.3em]">VIGILIA_KERNEL_INIT</p>
-                         <button onClick={initCamera} className="px-8 py-3 bg-green-600 text-black font-black tracking-[0.2em] hover:bg-white hover:text-green-900 transition-all border border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)]">
-                             INICIAR SENSOR
-                         </button>
-                     </div>
-                )}
-
-                {(view === 'SCANNER' || view === 'DASHBOARD') && (
-                    <div className="relative w-full max-w-md aspect-[4/5] bg-black border-2 border-green-500/30 rounded-sm overflow-hidden shadow-[0_0_50px_rgba(34,197,94,0.1)]">
-                        {view === 'SCANNER' && <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover grayscale contrast-125"></video>}
-                        {view === 'DASHBOARD' && (
-                            <div className="w-full h-full bg-green-900/10 flex flex-col items-center justify-center animate-pulse">
-                                <ShieldCheck size={64} className="text-green-500 mb-4" />
-                                <h2 className="text-4xl font-black text-white">ACCESO CONCEDIDO</h2>
-                                <p className="text-green-400 text-xs tracking-[0.5em] mt-2">CARGANDO VIGILIA...</p>
-                            </div>
-                        )}
-                        <canvas ref={hudCanvasRef} width={400} height={500} className="absolute inset-0 w-full h-full pointer-events-none"></canvas>
-                        {isScanning && <div className="scan-line"></div>}
-                    </div>
-                )}
-
-                {view === 'SCANNER' && (
-                    <div className="flex gap-4 mt-6">
-                        <button onClick={handleEnroll} className="flex flex-col items-center gap-2 group hover:text-white transition-colors">
-                            <div className="w-12 h-12 rounded-full border border-green-500 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all">
-                                <UserPlus size={20} />
-                            </div>
-                            <span className="text-[10px] font-bold opacity-60">REGISTRAR</span>
-                        </button>
-                        <button 
-                            onClick={handleVerify} 
-                            disabled={!user}
-                            className={`flex flex-col items-center gap-2 group hover:text-white transition-colors ${!user ? 'opacity-30 cursor-not-allowed' : ''}`}
-                        >
-                            <div className="w-12 h-12 rounded-full border border-green-500 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all">
-                                <Fingerprint size={20} />
-                            </div>
-                            <span className="text-[10px] font-bold opacity-60">VALIDAR</span>
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            <div className="col-span-3 glass-panel p-4 border-l border-green-900/20 hidden md:block">
-                <h3 className="text-[10px] font-bold opacity-50 border-b border-green-800 pb-1 mb-4">SUJETO ACTIVO</h3>
-                <div className="flex gap-3 items-center bg-green-950/30 p-3 rounded border border-green-500/20">
-                    <div className="w-12 h-12 bg-black border border-green-700 flex items-center justify-center overflow-hidden">
-                        {user && user.image ? <img src={user.image} className="w-full h-full object-cover grayscale" alt="User" /> : <span className="text-[9px] opacity-50">N/A</span>}
-                    </div>
-                    <div>
-                        <div className="text-xs font-bold text-white">{user ? user.name : 'ESPERANDO...'}</div>
-                        <div className="text-[9px] opacity-50 font-mono">{user ? user.id : 'NO_DATA'}</div>
+                    )}
+                    
+                    <div className="mt-24 opacity-60 flex justify-center gap-3">
+                        {introTexts.map((_, i) => (
+                            <div key={i} className={`h-1.5 transition-all duration-500 ${i === introStep ? 'w-12 bg-green-400 shadow-[0_0_15px_rgba(34,197,94,0.9)]' : i < introStep ? 'w-4 bg-green-700' : 'w-4 bg-green-950'}`}></div>
+                        ))}
                     </div>
                 </div>
+            </div>
+        ) : (
+            <div className="relative flex-1 p-4 grid grid-cols-1 md:grid-cols-12 gap-4 overflow-y-auto md:overflow-hidden">
                 
-                {view === 'DASHBOARD' && (
-                     <div className="mt-8 space-y-2 font-mono">
-                         <div className="text-[10px] text-green-400">{`> Conectando con Núcleo... OK`}</div>
-                         <div className="text-[10px] text-green-400">{`> Descifrando Protocolos... OK`}</div>
-                         <div className="text-[10px] text-white animate-pulse">{`> Iniciando VIGILIA.EXE`}</div>
-                     </div>
-                )}
+                <div className="md:col-span-3 glass-panel p-4 flex flex-col gap-4 hidden md:flex">
+                    <div className="space-y-2">
+                        <h3 className="text-[10px] font-bold opacity-50 border-b border-green-800 pb-1">BIOMETRÍA</h3>
+                        <div className="flex justify-between text-xs"><span>TEMP</span><span className="text-white">{stats.temp}°C</span></div>
+                        <div className="flex justify-between text-xs"><span>PULSO</span><span className="text-white">{stats.bpm} BPM</span></div>
+                    </div>
+                    <div className="flex-1 bg-black/50 border border-green-900/30 relative">
+                        <canvas ref={voiceCanvasRef} width={200} height={100} className="w-full h-full opacity-70"></canvas>
+                        <span className="absolute top-1 left-1 text-[8px] opacity-50">VOICE_PRINT</span>
+                    </div>
+                    <div className="h-32 bg-black/80 border border-green-900/30 p-2 overflow-hidden font-mono text-[9px]">
+                        {logs.map((l, i) => (
+                            <div key={i} className={l.isAlert ? 'text-red-500' : 'text-green-400 opacity-80'}>
+                                <span className="opacity-40">[{l.time}]</span> {l.msg}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="md:col-span-6 relative flex flex-col items-center justify-center w-full max-w-lg mx-auto">
+                    {view === 'BOOT' && (
+                        <div className="text-center z-20 p-8 w-full glass-panel border border-green-500/30">
+                            <div className="w-20 h-20 border-t-4 border-green-500 rounded-full animate-spin mb-6 mx-auto shadow-[0_0_30px_rgba(34,197,94,0.4)]"></div>
+                            <h2 className="text-2xl md:text-3xl font-black italic mb-2 tracking-widest text-white">NÚCLEO <span className="text-green-500">COLECTIVO</span></h2>
+                            <p className="text-xs mb-8 text-green-700 tracking-[0.3em]">VIGILIA_KERNEL_INIT</p>
+                            <button onClick={initCamera} className="w-full px-4 md:px-8 py-4 bg-green-600 text-black font-black tracking-[0.1em] md:tracking-[0.2em] hover:bg-white hover:text-green-900 transition-all border border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)] text-sm md:text-base">
+                                INICIAR SENSOR ÓPTICO
+                            </button>
+                        </div>
+                    )}
+
+                    {(view === 'SCANNER' || view === 'DASHBOARD') && (
+                        <div className="relative w-full aspect-square md:aspect-[4/5] max-h-[65vh] bg-black border-2 border-green-500/30 rounded-sm overflow-hidden shadow-[0_0_50px_rgba(34,197,94,0.1)]">
+                            {view === 'SCANNER' && <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover grayscale contrast-125 scale-x-[-1]"></video>}
+                            {view === 'DASHBOARD' && (
+                                <div className="w-full h-full bg-green-900/10 flex flex-col items-center justify-center animate-pulse">
+                                    <ShieldCheck size={64} className="text-green-500 mb-4" />
+                                    <h2 className="text-4xl font-black text-white">ACCESO CONCEDIDO</h2>
+                                    <p className="text-green-400 text-xs tracking-[0.5em] mt-2">CARGANDO VIGILIA...</p>
+                                </div>
+                            )}
+                            <canvas ref={hudCanvasRef} width={400} height={500} className="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+                            {isScanning && <div className="scan-line"></div>}
+                        </div>
+                    )}
+
+                    {view === 'SCANNER' && (
+                        <div className="flex gap-4 mt-6">
+                            <button onClick={handleEnroll} className="flex flex-col items-center gap-2 group hover:text-white transition-colors">
+                                <div className="w-12 h-12 rounded-full border border-green-500 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all shadow-[0_0_15px_rgba(34,197,94,0.2)] group-hover:shadow-[0_0_25px_rgba(34,197,94,0.6)]">
+                                    <UserPlus size={20} />
+                                </div>
+                                <span className="text-[10px] font-bold opacity-60">REGISTRAR</span>
+                            </button>
+                            <button 
+                                onClick={handleVerify} 
+                                disabled={!user}
+                                className={`flex flex-col items-center gap-2 group hover:text-white transition-colors ${!user ? 'opacity-30 cursor-not-allowed' : ''}`}
+                            >
+                                <div className="w-12 h-12 rounded-full border border-green-500 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all shadow-[0_0_15px_rgba(34,197,94,0.2)] group-hover:shadow-[0_0_25px_rgba(34,197,94,0.6)]">
+                                    <Fingerprint size={20} />
+                                </div>
+                                <span className="text-[10px] font-bold opacity-60">VALIDAR</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="md:col-span-3 glass-panel p-4 border-l border-green-900/20 hidden md:block">
+                    <h3 className="text-[10px] font-bold opacity-50 border-b border-green-800 pb-1 mb-4">SUJETO ACTIVO</h3>
+                    <div className="flex gap-3 items-center bg-green-950/30 p-3 rounded border border-green-500/20">
+                        <div className="w-12 h-12 bg-black border border-green-700 flex items-center justify-center overflow-hidden">
+                            {user && user.image ? <img src={user.image} className="w-full h-full object-cover grayscale" alt="User" /> : <span className="text-[9px] opacity-50">N/A</span>}
+                        </div>
+                        <div>
+                            <div className="text-xs font-bold text-white">{user ? user.name : 'ESPERANDO...'}</div>
+                            <div className="text-[9px] opacity-50 font-mono">{user ? user.id : 'NO_DATA'}</div>
+                        </div>
+                    </div>
+                    
+                    {view === 'DASHBOARD' && (
+                        <div className="mt-8 space-y-2 font-mono">
+                            <div className="text-[10px] text-green-400">{`> Conectando con Núcleo... OK`}</div>
+                            <div className="text-[10px] text-green-400">{`> Descifrando Protocolos... OK`}</div>
+                            <div className="text-[10px] text-white animate-pulse">{`> Iniciando VIGILIA.EXE`}</div>
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
+        )}
 
         {showNameModal && (
             <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, Activity, Eye, Mic, Settings, Play, Square, Terminal, Network, RefreshCw, Volume2, VolumeX, Save, FileText, Grid, Zap, Aperture, Target, Crosshair, Sparkles, MessageSquare, Share2, Radio, Trash2, Sliders, Music, MicOff, Monitor, EyeOff, Lock, Type, Moon, Sun, Disc, Shuffle, Cpu, PenTool, BarChart3, ShieldCheck, UserPlus, Fingerprint } from 'lucide-react';
+import { Camera, Activity, Eye, Mic, Settings, Play, Square, Terminal, Network, RefreshCw, Volume2, VolumeX, Save, FileText, Grid, Zap, Aperture, Target, Crosshair, Sparkles, MessageSquare, Share2, Radio, Trash2, Sliders, Music, MicOff, Monitor, EyeOff, Lock, Type, Moon, Sun, Disc, Shuffle, Cpu, PenTool, BarChart3, ShieldCheck, UserPlus, Fingerprint, X, HelpCircle, Film } from 'lucide-react';
 
 interface VigiliaCoreProps {
   userName: string;
@@ -147,8 +147,35 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
   const [isSystemActive, setIsSystemActive] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const isRecordingRef = useRef(false);
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+  
+  const [videoFormat, setVideoFormat] = useState<'mp4' | 'mov' | 'webm'>('mp4');
+  const [isSimulated, setIsSimulated] = useState(false);
+  const isSimulatedRef = useRef(false);
+  useEffect(() => {
+    isSimulatedRef.current = isSimulated;
+  }, [isSimulated]);
+
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [galleryMode, setGalleryMode] = useState(false);
   
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingCanvasRef = useRef<HTMLCanvasElement>(null);
+  
+  const [showTutorial, setShowTutorial] = useState(true);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  
+  const tutorialContent = [
+      { title: "VIGILIA", text: "Este es tu panel de control y lienzo generativo. Haz clic en 'ENCENDER' para inicializar el núcleo y ceder tu reflejo." },
+      { title: "ÓPTICA Y SEÑAL", text: "Usa los botones laterales para cambiar los filtros visuales. Si activas el micrófono, el ruido de tu entorno alterará la imagen." },
+      { title: "PROTOCOLOS", text: "El sistema ofrece diferentes modos de interacción (Rastro, Respiración, Partículas...). Úsalos para experimentar cómo reacciona a tu movimiento." },
+      { title: "POÉTICA KINÉTICA", text: "Nuestra IA analiza tu inactividad y caos para generar manifiestos poéticos en tiempo real sobre tu imagen." }
+  ];
+
   const [uiMotionScore, setUiMotionScore] = useState(0);
   const [uiAudioScore, setUiAudioScore] = useState(0); 
   const [uiCentroid, setUiCentroid] = useState({ x: 0.5, y: 0.5 });
@@ -323,36 +350,136 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
       }
   };
 
+  const toggleRecording = () => {
+      if (isRecording) {
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+              mediaRecorderRef.current.stop();
+          }
+          setIsRecording(false);
+          setRecordingTime(0);
+          addLog("GRABACIÓN FINALIZADA", false);
+      } else {
+          if (!recordingCanvasRef.current) return;
+          const stream = recordingCanvasRef.current.captureStream(30);
+          
+          let options: MediaRecorderOptions | undefined;
+          const preferredCandidates: Record<string, string[]> = {
+              mp4: [
+                  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+                  'video/mp4;codecs=avc1',
+                  'video/mp4;codecs=h264',
+                  'video/mp4',
+                  'video/webm;codecs=h264',
+                  'video/webm;codecs=vp9',
+                  'video/webm'
+              ],
+              mov: [
+                  'video/quicktime',
+                  'video/mp4;codecs=avc1',
+                  'video/mp4',
+                  'video/webm'
+              ],
+              webm: [
+                  'video/webm;codecs=vp9',
+                  'video/webm;codecs=vp8',
+                  'video/webm',
+                  'video/mp4'
+              ]
+          };
+
+          const candidates = preferredCandidates[videoFormat] || preferredCandidates.mp4;
+          for (const mime of candidates) {
+              if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mime)) {
+                  options = { mimeType: mime };
+                  break;
+              }
+          }
+          
+          let recorder: MediaRecorder;
+          try {
+              recorder = options ? new MediaRecorder(stream, options) : new MediaRecorder(stream);
+          } catch (e) {
+              recorder = new MediaRecorder(stream);
+          }
+          
+          recordedChunksRef.current = [];
+          
+          recorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) {
+                  recordedChunksRef.current.push(e.data);
+              }
+          };
+          
+          recorder.onstop = () => {
+              const actualMime = recorder.mimeType || options?.mimeType || 'video/mp4';
+              const blob = new Blob(recordedChunksRef.current, { type: actualMime });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.style.display = 'none';
+              a.href = url;
+              const ext = videoFormat === 'mov' ? 'mov' : videoFormat === 'mp4' ? 'mp4' : 'webm';
+              a.download = `VIGILIA_${activeFilterRef.current}_${Date.now()}.${ext}`;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+              }, 200);
+              addLog(`VIDEO GUARDADO (.${ext.toUpperCase()})`, true);
+          };
+          
+          recorder.start();
+          mediaRecorderRef.current = recorder;
+          setIsRecording(true);
+          addLog(`INICIANDO GRABACIÓN (.${videoFormat.toUpperCase()})`, true);
+      }
+  };
+
   const handleBandSensitivityChange = (band: string, val: string) => {
       setBandSensitivities(prev => ({...prev, [band]: parseFloat(val)}));
   };
 
   const takeSnapshot = () => {
-    if (!displayCanvasRef.current || !videoRef.current) return;
-    const video = videoRef.current;
+    if (!displayCanvasRef.current) return;
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = video.videoWidth || 1280;
-    tempCanvas.height = video.videoHeight || 720;
+    const width = videoRef.current?.videoWidth || displayCanvasRef.current.width || 1280;
+    const height = videoRef.current?.videoHeight || displayCanvasRef.current.height || 720;
+    tempCanvas.width = width;
+    tempCanvas.height = height;
     const ctx = tempCanvas.getContext('2d');
     
     if (ctx) {
-        const currentFilter = CAMERA_FILTERS[activeFilter].filter;
-        ctx.filter = currentFilter !== 'none' ? currentFilter : 'none';
-        
-        ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+        if (videoRef.current && videoRef.current.readyState >= 2 && !isSimulated) {
+            const currentFilter = CAMERA_FILTERS[activeFilter]?.filter || 'none';
+            ctx.filter = currentFilter !== 'none' ? currentFilter : 'none';
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.save();
+            ctx.translate(tempCanvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoRef.current, 0, 0, tempCanvas.width, tempCanvas.height);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = '#050706';
+            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        }
         
         ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'screen';
         ctx.drawImage(displayCanvasRef.current, 0, 0, tempCanvas.width, tempCanvas.height);
         
-        ctx.fillStyle = '#0f0';
-        ctx.font = `bold ${tempCanvas.width * 0.02}px "Montserrat", sans-serif`;
-        ctx.fillText(`VIGILIA [${activeFilter}] // ${new Date().toISOString()}`, 20, tempCanvas.height - 20);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, tempCanvas.height - 36, tempCanvas.width, 36);
+        
+        ctx.fillStyle = '#10b981';
+        ctx.font = `bold ${Math.max(13, Math.floor(tempCanvas.width * 0.015))}px monospace`;
+        ctx.fillText(`NÚCLEO COLECTIVO // VIGILIA [${activeFilter}] // ${new Date().toLocaleString()}`, 20, tempCanvas.height - 13);
 
         const link = document.createElement('a');
         link.download = `VIGILIA_${activeFilter}_${Date.now()}.png`;
         link.href = tempCanvas.toDataURL('image/png', 1.0);
         link.click();
-        addLog("FOTO GUARDADA.", false);
+        addLog("CAPTURA COMPLETA GUARDADA", true);
     }
   };
 
@@ -408,9 +535,16 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
     const canvas = canvasRef.current;
     const displayCanvas = displayCanvasRef.current;
     
-    if (!video || !canvas || !displayCanvas || video.paused || video.ended) {
+    if (!canvas || !displayCanvas) {
         requestRef.current = requestAnimationFrame(processFrame);
         return;
+    }
+
+    if (!isSimulatedRef.current) {
+        if (!video || video.paused || video.ended) {
+            requestRef.current = requestAnimationFrame(processFrame);
+            return;
+        }
     }
 
     const currentMode = activeModeRef.current;
@@ -459,16 +593,43 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
     if (canvas.width !== 320) {
       canvas.width = 320;
       canvas.height = 240;
-      displayCanvas.width = video.videoWidth || 640;
-      displayCanvas.height = video.videoHeight || 480;
+      displayCanvas.width = video?.videoWidth || 640;
+      displayCanvas.height = video?.videoHeight || 480;
     }
 
     const chaosLevel = (bandsRef.current.treble * 2);
     const isStutter = effectiveAudio > 80 && Math.random() > 0.6;
     
-    if (!isStutter) {
+    if (isSimulatedRef.current) {
+        const t = Date.now() * 0.002;
+        ctx.fillStyle = '#060a08';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Cybernetic silhouette
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2;
+        const cx = 160 + Math.sin(t * 1.3) * 50;
+        const cy = 120 + Math.cos(t * 0.9) * 35;
+        
+        ctx.beginPath();
+        ctx.arc(cx, cy, 32 + Math.sin(t * 2.5) * 8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+        ctx.fillRect(cx - 20, cy - 20, 40, 40);
+
+        for (let y = 0; y < 240; y += 12) {
+            const alpha = (Math.sin(y * 0.12 + t * 4) + 1) * 0.1;
+            ctx.fillStyle = `rgba(34, 197, 94, ${alpha})`;
+            ctx.fillRect(0, y, 320, 2);
+        }
+    } else if (!isStutter && video) {
         const pixelationFactor = chaosLevel > 180 ? 4 : 1; 
+        ctx.save();
+        ctx.translate(canvas.width / pixelationFactor, 0);
+        ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width / pixelationFactor, canvas.height / pixelationFactor);
+        ctx.restore();
         if (pixelationFactor > 1) {
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(canvas, 0, 0, canvas.width / pixelationFactor, canvas.height / pixelationFactor, 0, 0, canvas.width, canvas.height);
@@ -595,7 +756,7 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
         const finalX = cameraPanRef.current.x + jitterX;
         const finalY = cameraPanRef.current.y + jitterY;
 
-        videoRef.current.style.transform = `translate(${finalX}%, ${finalY}%) scale(${targetScale})`;
+        videoRef.current.style.transform = `translate(${finalX}%, ${finalY}%) scaleX(${-targetScale}) scaleY(${targetScale})`;
         
         const baseFilterStr = CAMERA_FILTERS[currentFilter].filter === 'none' ? '' : CAMERA_FILTERS[currentFilter].filter;
         const dynamicSat = 100 + (bandsRef.current.treble / 3); 
@@ -813,32 +974,111 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
         }
     }
 
+    if (isRecordingRef.current && recordingCanvasRef.current) {
+        const rCanvas = recordingCanvasRef.current;
+        const rCtx = rCanvas.getContext('2d');
+        if (rCtx) {
+            const targetW = video?.videoWidth || 1280;
+            const targetH = video?.videoHeight || 720;
+            if (rCanvas.width !== targetW || rCanvas.height !== targetH) {
+                rCanvas.width = targetW;
+                rCanvas.height = targetH;
+            }
+            
+            if (video && video.readyState >= 2 && !isSimulatedRef.current) {
+                const currentFilterStr = CAMERA_FILTERS[currentFilter]?.filter || 'none';
+                rCtx.filter = currentFilterStr !== 'none' ? currentFilterStr : 'none';
+                rCtx.globalCompositeOperation = 'source-over';
+                rCtx.save();
+                rCtx.translate(rCanvas.width, 0);
+                rCtx.scale(-1, 1);
+                rCtx.drawImage(video, 0, 0, rCanvas.width, rCanvas.height);
+                rCtx.restore();
+            } else {
+                rCtx.fillStyle = '#050706';
+                rCtx.fillRect(0, 0, rCanvas.width, rCanvas.height);
+            }
+            
+            rCtx.filter = 'none';
+            rCtx.globalCompositeOperation = 'screen';
+            rCtx.drawImage(displayCanvas, 0, 0, rCanvas.width, rCanvas.height);
+            
+            rCtx.globalCompositeOperation = 'source-over';
+            rCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            rCtx.fillRect(0, rCanvas.height - 36, rCanvas.width, 36);
+            
+            rCtx.fillStyle = '#10b981';
+            rCtx.font = `bold ${Math.max(13, Math.floor(rCanvas.width * 0.015))}px monospace`;
+            rCtx.fillText(`VIGILIA [${currentFilter}] // ${new Date().toISOString()}`, 20, rCanvas.height - 13);
+        }
+    }
+
     drawOscilloscope();
     requestRef.current = requestAnimationFrame(processFrame);
   };
 
+  const startSimulatedMode = () => {
+    setIsSimulated(true);
+    setIsSystemActive(true);
+    setIsScanning(false);
+    setCameraError(null);
+    if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    requestRef.current = requestAnimationFrame(processFrame);
+    addLog("SENSOR GENERATIVO SIMULADO ONLINE", true);
+  };
+
   const startCamera = async () => {
     setIsScanning(true);
-    addLog("INICIANDO VIDEO...", false);
-    setTimeout(() => {
-        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(e => console.log("Video play aborted", e));
-            }
-            setIsScanning(false);
-            setIsSystemActive(true);
-            requestRef.current = requestAnimationFrame(processFrame);
-            addLog("SISTEMA ONLINE.", false);
-        }).catch(() => {
-            setIsScanning(false);
-            addLog("ERROR CÁMARA.", false);
-        });
-    }, 1500);
+    setCameraError(null);
+    addLog("CONECTANDO SENSOR ÓPTICO...", false);
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setIsScanning(false);
+        setCameraError("Navegador sin soporte de cámara directa. Modo simulado disponible.");
+        addLog("AVISO: MODO SIMULADO ACTIVADO", true);
+        startSimulatedMode();
+        return;
+    }
+
+    try {
+        let stream: MediaStream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+        } catch {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+
+        if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.onloadedmetadata = () => {
+                videoRef.current?.play().catch(e => console.log("Video play error", e));
+            };
+        }
+        setIsSimulated(false);
+        setIsScanning(false);
+        setIsSystemActive(true);
+        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+        requestRef.current = requestAnimationFrame(processFrame);
+        addLog("SISTEMA ONLINE - ÓPTICA ACTIVA.", false);
+    } catch (err: any) {
+        console.warn("Camera init error:", err);
+        setIsScanning(false);
+        setCameraError("No se pudo iniciar la cámara en este dispositivo. Puedes usar el modo simulado generativo.");
+        addLog("ERROR CÁMARA (PERMISOS O HARDWARE)", true);
+    }
   };
 
   const stopSystem = () => {
-    if (videoRef.current?.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+    if (videoRef.current?.srcObject) {
+        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+    }
     if (requestRef.current) cancelAnimationFrame(requestRef.current);
     if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -846,6 +1086,7 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
     }
     if (isRecording && sessionLogs.length > 5) generateManifesto();
     setIsSystemActive(false);
+    setIsSimulated(false);
     setMicEnabled(false);
     setUiMotionScore(0); 
     motionScoreRef.current = 0; 
@@ -878,21 +1119,66 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
   }, [autoMode, isSystemActive]);
 
   return (
-    <div className={`w-full h-full min-h-screen bg-black text-green-500 font-montserrat p-2 flex flex-col md:flex-row gap-2 overflow-hidden selection:bg-green-900 selection:text-white`}>
-      <div className={`flex-1 flex flex-col gap-2 relative border border-green-900/50 bg-neutral-900/20 p-2 ${galleryMode ? 'fixed inset-0 z-50 bg-black p-0 border-0' : ''}`}>
+    <div className={`w-full min-h-[100dvh] md:h-[100dvh] bg-black text-green-500 font-montserrat p-2 flex flex-col md:flex-row gap-2 overflow-y-auto md:overflow-hidden selection:bg-green-900 selection:text-white`}>
+      {showTutorial && (
+        <div className="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="glass-panel p-8 w-full max-w-lg border-2 border-green-500/50 bg-black/90 shadow-[0_0_50px_rgba(34,197,94,0.2)] relative">
+                <button 
+                    onClick={() => setShowTutorial(false)}
+                    className="absolute top-4 right-4 text-green-500/50 hover:text-green-400 transition-colors"
+                >
+                    <X size={20} />
+                </button>
+                <h2 className="text-2xl font-black text-green-400 mb-4 tracking-[0.2em] uppercase pr-8">
+                    {tutorialContent[tutorialStep].title}
+                </h2>
+                <p className="text-sm text-green-100 mb-8 leading-relaxed font-mono min-h-[60px]">
+                    {tutorialContent[tutorialStep].text}
+                </p>
+                <div className="flex justify-between items-center">
+                    <div className="flex gap-2">
+                        {tutorialContent.map((_, i) => (
+                            <div key={i} className={`h-1.5 transition-all duration-300 ${i === tutorialStep ? 'w-8 bg-green-400' : 'w-3 bg-green-900'}`} />
+                        ))}
+                    </div>
+                    <button 
+                        onClick={() => {
+                            if (tutorialStep < tutorialContent.length - 1) {
+                                setTutorialStep(prev => prev + 1);
+                            } else {
+                                setShowTutorial(false);
+                            }
+                        }}
+                        className="px-6 py-2 bg-green-900 hover:bg-green-500 hover:text-black text-white font-bold tracking-widest text-xs border border-green-500 transition-all"
+                    >
+                        {tutorialStep < tutorialContent.length - 1 ? 'SIGUIENTE' : 'COMENZAR'}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+      
+      <div className={`flex-1 flex flex-col gap-2 relative border border-green-900/50 bg-neutral-900/20 p-2 min-h-[50vh] md:min-h-0 ${galleryMode ? 'fixed inset-0 z-50 bg-black p-0 border-0' : ''}`}>
         
         {!galleryMode && (
           <div className="flex justify-between items-center pb-2 border-b border-green-900/50">
             <div>
               <h1 className="text-xl font-extrabold tracking-[0.2em] text-green-400">VIGILIA<span className="text-green-800">EXP</span></h1>
-              <p className="text-[10px] text-green-600 font-medium">v2026.33 // {activeMode}</p>
+              <p className="text-[10px] text-green-600 font-medium">v2026.33 // {activeMode} {isSimulated ? '(MODO SIMULADO)' : ''}</p>
             </div>
-            <div className="flex items-center gap-4 text-xs font-bold">
+            <div className="flex items-center gap-3 text-xs font-bold">
+              <button 
+                onClick={() => { setTutorialStep(0); setShowTutorial(true); }}
+                className="px-2 py-0.5 text-[10px] font-bold text-green-400 border border-green-800 hover:border-green-400 hover:bg-green-950/60 rounded-sm flex items-center gap-1 transition-colors"
+                title="Abrir Tutorial"
+              >
+                <HelpCircle size={11} /> TUTORIAL
+              </button>
               <span className={isRecording ? "text-red-500 animate-pulse" : "text-gray-600"}>
                   {isRecording ? `REC ${recordingTime}s` : "ESPERA"}
               </span>
               <div className={`px-2 py-0.5 rounded text-[10px] ${isSystemActive ? 'bg-green-900 text-green-100' : 'bg-red-900/30 text-red-500'}`}>
-                  {isSystemActive ? 'EN VIVO' : 'OFF'}
+                  {isSystemActive ? (isSimulated ? 'SIMULADO' : 'EN VIVO') : 'OFF'}
               </div>
             </div>
           </div>
@@ -900,9 +1186,30 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
 
         <div className={`relative bg-black rounded-sm flex-1 overflow-hidden flex items-center justify-center group ${!galleryMode ? 'min-h-[400px] border border-green-900/30' : 'w-full h-full'}`}>
           {!isSystemActive && !isScanning && (
-            <div className="text-center text-green-900/50">
-              <Aperture className="w-24 h-24 mx-auto mb-4 opacity-20" />
-              <p className="text-xs tracking-widest font-semibold">SISTEMA INACTIVO</p>
+            <div className="text-center text-green-900/80 p-4 max-w-sm flex flex-col items-center z-20">
+              <Aperture className="w-16 h-16 mx-auto mb-3 opacity-30 text-green-500" />
+              <p className="text-xs tracking-widest font-bold text-green-400 mb-2">SISTEMA LISTO</p>
+              
+              {cameraError && (
+                <div className="mb-3 p-2 bg-yellow-950/40 border border-yellow-700/60 rounded text-[11px] text-yellow-300">
+                  {cameraError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 w-full mt-1">
+                <button
+                  onClick={startCamera}
+                  className="py-3 px-6 bg-green-900 hover:bg-green-800 text-white font-extrabold text-xs tracking-widest transition-all rounded-sm border border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]"
+                >
+                  INICIAR CÁMARA
+                </button>
+                <button
+                  onClick={startSimulatedMode}
+                  className="py-2 px-4 bg-transparent hover:bg-green-950/40 text-green-400 font-semibold text-[10px] tracking-wider transition-all rounded-sm border border-green-800"
+                >
+                  SENSOR SIMULADO (SIN CÁMARA)
+                </button>
+              </div>
             </div>
           )}
           
@@ -917,12 +1224,14 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
           
           <video 
             ref={videoRef} 
-            className={`absolute inset-0 w-full h-full object-cover grayscale transition-all duration-300 ${glitchActive ? 'translate-x-1' : ''}`} 
+            className={`absolute inset-0 w-full h-full object-cover grayscale transition-all duration-300 scale-x-[-1] ${glitchActive ? 'translate-x-1' : ''}`} 
             muted 
             playsInline 
+            autoPlay
           />
           
           <canvas ref={displayCanvasRef} className="absolute inset-0 w-full h-full object-cover pointer-events-none mix-blend-screen" />
+          <canvas ref={recordingCanvasRef} className="hidden" />
 
           {isSystemActive && (
               <div className="absolute inset-0 pointer-events-none p-4 flex flex-col justify-between">
@@ -961,7 +1270,7 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
       </div>
 
       {!galleryMode && (
-      <div className="w-full md:w-80 flex flex-col gap-2 bg-neutral-900/20 border-l border-green-900/50 p-2">
+      <div className="w-full md:w-80 flex flex-col gap-2 bg-neutral-900/20 md:border-l border-green-900/50 p-2 md:overflow-y-auto custom-scrollbar">
         <div className="grid grid-cols-2 gap-2 mb-2">
             {!isSystemActive ? (
                 <button onClick={startCamera} disabled={isScanning} className="col-span-2 py-4 bg-green-900 hover:bg-green-800 text-white font-extrabold text-xs tracking-widest transition-all rounded-sm">
@@ -973,12 +1282,36 @@ export const VigiliaCore: React.FC<VigiliaCoreProps> = ({ userName }) => {
                 </button>
             )}
             
-            <button onClick={() => setIsRecording(!isRecording)} disabled={!isSystemActive} className={`py-2 text-[10px] border rounded-sm font-semibold ${isRecording ? 'bg-red-600 text-white border-red-600' : 'border-neutral-700 text-neutral-400 hover:border-white'}`}>
-                {isRecording ? 'STOP REC' : 'GRABAR'}
+            <button onClick={toggleRecording} disabled={!isSystemActive} className={`py-2 text-[10px] border rounded-sm font-semibold ${isRecording ? 'bg-red-600 text-white border-red-600' : 'border-neutral-700 text-neutral-400 hover:border-white'}`}>
+                {isRecording ? 'STOP REC' : `GRABAR .${videoFormat.toUpperCase()}`}
             </button>
             <button onClick={takeSnapshot} disabled={!isSystemActive} className="py-2 text-[10px] border border-neutral-700 text-neutral-400 hover:text-white hover:border-white transition-colors flex items-center justify-center gap-1 rounded-sm font-semibold">
                 <Save size={10} /> FOTO HD
             </button>
+
+            <div className="col-span-2 flex items-center justify-between px-2 py-1 bg-black/60 border border-green-950 rounded-sm">
+                <span className="text-[9px] font-bold text-green-600 flex items-center gap-1">
+                    <Film size={10} /> FORMATO VIDEO:
+                </span>
+                <div className="flex gap-1">
+                    {(['mp4', 'mov', 'webm'] as const).map(fmt => (
+                        <button
+                            key={fmt}
+                            onClick={() => {
+                                setVideoFormat(fmt);
+                                addLog(`FORMATO VIDEO: .${fmt.toUpperCase()}`, false);
+                            }}
+                            className={`px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all ${
+                                videoFormat === fmt
+                                    ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.6)]'
+                                    : 'bg-neutral-900/80 text-neutral-400 hover:text-green-300'
+                            }`}
+                        >
+                            .{fmt}
+                        </button>
+                    ))}
+                </div>
+            </div>
             
             <button 
                 onClick={togglePoetic} 
